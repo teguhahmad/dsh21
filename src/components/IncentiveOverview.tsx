@@ -5,6 +5,16 @@ import {
   User,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
+  TrendingUp,
+  Award,
+  Target,
+  Percent,
+  Star,
+  Trophy,
+  Activity
 } from 'lucide-react';
 import { useSupabase } from '../hooks/useSupabase';
 import { Account, SalesData, User as UserType, IncentiveRule } from '../types';
@@ -125,11 +135,58 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
         qualifying_accounts: qualifyingAccountsCount,
         total_revenue: totalRevenue,
         total_commission: totalCommission,
-        avg_commission_rate: avgCommissionRate,
+        avg_commission_rate: totalRevenue > 0 ? (totalCommission / totalRevenue) * 100 : 0,
       };
     });
     return overview.sort((a, b) => b.total_revenue - a.total_revenue);
   }, [users, accounts, salesData, selectedMonth, selectedYear, activeRule]);
+
+  // Calculate summary statistics
+  const summaryStats = useMemo(() => {
+    if (!activeRule) return null;
+
+    let totalUsers = 0;
+    let qualifyingUsers = 0;
+    let totalRevenue = 0;
+    let totalCommission = 0;
+    let totalIncentive = 0;
+    let highPerformers = 0;
+
+    userAccountsOverview.forEach(userOverview => {
+      totalUsers++;
+      
+      if (userOverview.qualifying_accounts > 0) {
+        qualifyingUsers++;
+        totalRevenue += userOverview.total_revenue;
+        totalCommission += userOverview.total_commission;
+        
+        // Calculate incentive for this user
+        if (userOverview.total_revenue >= activeRule.base_revenue_threshold) {
+          const incentive = calculateTieredIncentive(userOverview.total_revenue, activeRule);
+          totalIncentive += incentive;
+        }
+        
+        // Count high performers (above 6.5% commission rate)
+        if (userOverview.avg_commission_rate >= 6.5) {
+          highPerformers++;
+        }
+      }
+    });
+
+    const avgCommissionRate = totalRevenue > 0 ? (totalCommission / totalRevenue) * 100 : 0;
+    const qualificationRate = totalUsers > 0 ? (qualifyingUsers / totalUsers) * 100 : 0;
+
+    return {
+      totalUsers,
+      qualifyingUsers,
+      totalRevenue,
+      totalCommission,
+      totalIncentive,
+      highPerformers,
+      avgCommissionRate,
+      qualificationRate
+    };
+  }, [userAccountsOverview, activeRule]);
 
   // Month names in Indonesian
   const monthNames = [
@@ -173,18 +230,6 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
     setShowDatePicker(false);
   };
 
-  const handleYearChange = (direction: 'prev' | 'next') => {
-    if (direction === 'prev') {
-      setSelectedYear(selectedYear - 1);
-    } else {
-      setSelectedYear(selectedYear + 1);
-    }
-  };
-
-  const handleYearSelect = (year: number) => {
-    setSelectedYear(year);
-  };
-
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -193,6 +238,27 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
             <h1 className="text-2xl font-bold text-gray-900">Incentive Overview</h1>
             <p className="text-gray-600">Loading incentive calculations...</p>
           </div>
+        </div>
+        
+        {/* Loading skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white rounded-xl border border-gray-100 p-6">
+              <div className="animate-pulse">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-12 h-12 bg-gray-200 rounded-xl"></div>
+                  <div className="text-right">
+                    <div className="h-8 bg-gray-200 rounded mb-2 w-24"></div>
+                    <div className="h-4 bg-gray-200 rounded w-16"></div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="h-4 bg-gray-200 rounded w-20"></div>
+                  <div className="h-4 bg-gray-200 rounded w-12"></div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -217,21 +283,21 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
           {/* Year Navigation */}
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => handleYearChange('prev')}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              onClick={() => setSelectedYear(selectedYear - 1)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors group"
               title="Previous Year"
             >
-              <ChevronUp className="w-4 h-4 rotate-[-90deg] text-gray-600" />
+              <ChevronLeft className="w-4 h-4 text-gray-600 group-hover:text-gray-800" />
             </button>
-            <span className="text-lg font-semibold text-gray-900 min-w-[60px] text-center">
+            <span className="text-lg font-semibold text-gray-900 min-w-[70px] text-center">
               {selectedYear}
             </span>
             <button
-              onClick={() => handleYearChange('next')}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              onClick={() => setSelectedYear(selectedYear + 1)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors group"
               title="Next Year"
             >
-              <ChevronUp className="w-4 h-4 rotate-90 text-gray-600" />
+              <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-gray-800" />
             </button>
           </div>
           
@@ -277,13 +343,156 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
         </div>
       </div>
 
+      {/* Summary Cards */}
+      {summaryStats && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Total Revenue */}
+          <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl border border-blue-100 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
+                <DollarSign className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-blue-900">
+                  {formatCurrency(summaryStats.totalRevenue)}
+                </div>
+                <p className="text-sm text-blue-700">Total Revenue</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-blue-600">Commission Rate</span>
+              <span className="font-semibold text-blue-800">
+                {summaryStats.avgCommissionRate.toFixed(2)}%
+              </span>
+            </div>
+          </div>
+
+          {/* Total Incentive */}
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center">
+                <Award className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-green-900">
+                  {formatCurrency(summaryStats.totalIncentive)}
+                </div>
+                <p className="text-sm text-green-700">Total Incentive</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-green-600">Qualifying Users</span>
+              <span className="font-semibold text-green-800">
+                {summaryStats.qualifyingUsers} of {summaryStats.totalUsers}
+              </span>
+            </div>
+          </div>
+
+          {/* High Performers */}
+          <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border border-purple-100 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
+                <Trophy className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-purple-900">
+                  {summaryStats.highPerformers}
+                </div>
+                <p className="text-sm text-purple-700">High Performers</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-purple-600">Above 6.5% Rate</span>
+              <span className="font-semibold text-purple-800">
+                {summaryStats.totalUsers > 0 ? ((summaryStats.highPerformers / summaryStats.totalUsers) * 100).toFixed(1) : 0}%
+              </span>
+            </div>
+          </div>
+
+          {/* Qualification Rate */}
+          <div className="bg-gradient-to-br from-orange-50 to-yellow-50 rounded-xl border border-orange-100 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-yellow-500 rounded-xl flex items-center justify-center">
+                <Target className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-orange-900">
+                  {summaryStats.qualificationRate.toFixed(1)}%
+                </div>
+                <p className="text-sm text-orange-700">Qualification Rate</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-orange-600">Active Users</span>
+              <span className="font-semibold text-orange-800">
+                {summaryStats.qualifyingUsers}/{summaryStats.totalUsers}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active Rule Info */}
+      {activeRule && (
+        <div className="bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 rounded-xl border border-indigo-200 p-6">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                <Activity className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-indigo-900 mb-1">{activeRule.name}</h3>
+                <p className="text-indigo-700 mb-3">{activeRule.description}</p>
+                <div className="flex items-center space-x-6 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <DollarSign className="w-4 h-4 text-indigo-600" />
+                    <span className="text-indigo-800">
+                      Min Commission: {formatCurrency(activeRule.min_commission_threshold)}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Percent className="w-4 h-4 text-indigo-600" />
+                    <span className="text-indigo-800">
+                      Rate Range: {activeRule.commission_rate_min}% - {activeRule.commission_rate_max === 100 ? '∞' : activeRule.commission_rate_max + '%'}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Target className="w-4 h-4 text-indigo-600" />
+                    <span className="text-indigo-800">
+                      Base Threshold: {formatCurrency(activeRule.base_revenue_threshold)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 mb-2">
+                <Star className="w-4 h-4 mr-1" />
+                Active Rule
+              </div>
+              <div className="text-sm text-indigo-600">
+                {activeRule.tiers.length} Incentive Tiers
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* User Accounts Overview */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <div className="p-6 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900">User Accounts Overview</h3>
-          <p className="text-sm text-gray-600 mt-1">
-            Aggregated performance for {fullMonthNames[selectedMonth - 1]} {selectedYear}
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">User Performance Overview</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Detailed breakdown for {fullMonthNames[selectedMonth - 1]} {selectedYear}
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-gray-900">{userAccountsOverview.length}</div>
+              <div className="text-sm text-gray-500">Total Users</div>
+            </div>
+          </div>
         </div>
 
         {userAccountsOverview.length > 0 ? (
