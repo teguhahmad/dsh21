@@ -17,8 +17,6 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [viewMode, setViewMode] = useState<'year' | 'decade'>('year');
-  const [currentDecadeStart, setCurrentDecadeStart] = useState(2020);
   const [isLoading, setIsLoading] = useState(true);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [salesData, setSalesData] = useState<SalesData[]>([]);
@@ -144,11 +142,6 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
   ];
 
-  // Generate years for decade view
-  const getDecadeYears = (startYear: number) => {
-    return Array.from({ length: 16 }, (_, i) => startYear + i);
-  };
-
   // Function to determine which quest/rule category a user belongs to
   const getUserQuestCategory = (avgCommissionRate: number) => {
     if (!activeRule) return null;
@@ -180,17 +173,16 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
     setShowDatePicker(false);
   };
 
-  const handleYearSelect = (year: number) => {
-    setSelectedYear(year);
-    setViewMode('year');
+  const handleYearChange = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      setSelectedYear(selectedYear - 1);
+    } else {
+      setSelectedYear(selectedYear + 1);
+    }
   };
 
-  const handleDecadeNavigation = (direction: 'prev' | 'next') => {
-    if (direction === 'prev') {
-      setCurrentDecadeStart(currentDecadeStart - 16);
-    } else {
-      setCurrentDecadeStart(currentDecadeStart + 16);
-    }
+  const handleYearSelect = (year: number) => {
+    setSelectedYear(year);
   };
 
   if (isLoading) {
@@ -222,6 +214,27 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
             <span className="text-sm font-medium text-gray-700">Period:</span>
           </div>
           
+          {/* Year Navigation */}
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => handleYearChange('prev')}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Previous Year"
+            >
+              <ChevronUp className="w-4 h-4 rotate-[-90deg] text-gray-600" />
+            </button>
+            <span className="text-lg font-semibold text-gray-900 min-w-[60px] text-center">
+              {selectedYear}
+            </span>
+            <button
+              onClick={() => handleYearChange('next')}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Next Year"
+            >
+              <ChevronUp className="w-4 h-4 rotate-90 text-gray-600" />
+            </button>
+          </div>
+          
           {/* Date Picker Button */}
           <div className="relative">
             <button
@@ -229,107 +242,34 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
               className="flex items-center justify-between px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors min-w-[160px]"
             >
               <span className="text-sm font-medium text-gray-900">
-                {fullMonthNames[selectedMonth - 1]} {selectedYear}
+                {fullMonthNames[selectedMonth - 1]}
               </span>
               <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showDatePicker ? 'rotate-180' : ''}`} />
             </button>
             
             {/* Date Picker Dropdown */}
             {showDatePicker && (
-              <div className="absolute top-full right-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-lg z-50 p-4 min-w-[400px]">
-                {/* Year/Decade Header */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => handleDecadeNavigation('prev')}
-                      className="p-1 hover:bg-gray-100 rounded"
-                    >
-                      <ChevronUp className="w-4 h-4 rotate-[-90deg]" />
-                    </button>
-                    <button
-                      onClick={() => setViewMode(viewMode === 'year' ? 'decade' : 'year')}
-                      className="px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded"
-                    >
-                      {viewMode === 'year' ? selectedYear : `${currentDecadeStart} - ${currentDecadeStart + 15}`}
-                    </button>
-                    <button
-                      onClick={() => handleDecadeNavigation('next')}
-                      className="p-1 hover:bg-gray-100 rounded"
-                    >
-                      <ChevronUp className="w-4 h-4 rotate-90" />
-                    </button>
-                  </div>
+              <div className="absolute top-full right-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-lg z-50 p-4 min-w-[320px]">
+                {/* Month Header */}
+                <div className="text-center mb-4">
+                  <h3 className="text-sm font-medium text-gray-700">Select Month</h3>
                 </div>
 
-                {viewMode === 'year' ? (
-                  /* Year View - Months */
-                  <div>
-                    <div className="grid grid-cols-4 gap-2 mb-4">
-                      {monthNames.map((month, index) => (
-                        <button
-                          key={index}
-                          onClick={() => handleMonthSelect(index + 1)}
-                          className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-                            selectedMonth === index + 1
-                              ? 'bg-blue-500 text-white'
-                              : 'hover:bg-gray-100 text-gray-700'
-                          }`}
-                        >
-                          {month}
-                        </button>
-                      ))}
-                    </div>
-                    
-                    {/* Current Year Display */}
-                    <div className="text-center">
-                      <span className="text-xs text-gray-500 uppercase tracking-wide">
-                        {selectedYear}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  /* Decade View - Years */
-                  <div>
-                    <div className="grid grid-cols-4 gap-2 mb-4">
-                      {getDecadeYears(currentDecadeStart).map((year) => (
-                        <button
-                          key={year}
-                          onClick={() => handleYearSelect(year)}
-                          className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-                            selectedYear === year
-                              ? 'bg-blue-500 text-white'
-                              : 'hover:bg-gray-100 text-gray-700'
-                          }`}
-                        >
-                          {year}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* View Mode Toggle */}
-                <div className="flex justify-center space-x-4 pt-3 border-t border-gray-200">
-                  <button
-                    onClick={() => setViewMode('year')}
-                    className={`px-3 py-1 text-xs rounded ${
-                      viewMode === 'year'
-                        ? 'bg-gray-200 text-gray-800'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Year View
-                  </button>
-                  <button
-                    onClick={() => setViewMode('decade')}
-                    className={`px-3 py-1 text-xs rounded ${
-                      viewMode === 'decade'
-                        ? 'bg-gray-200 text-gray-800'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Decade View
-                  </button>
+                {/* Months Grid */}
+                <div className="grid grid-cols-3 gap-2">
+                  {monthNames.map((month, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleMonthSelect(index + 1)}
+                      className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+                        selectedMonth === index + 1
+                          ? 'bg-blue-500 text-white'
+                          : 'hover:bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      {month}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
