@@ -87,37 +87,24 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
   }, [incentiveRules]);
 
   // Calculate tiered incentive
-  const calculateTieredIncentive = (revenue: number, rule: IncentiveRule, category: 'standard' | 'high'): number => {
+  const calculateTieredIncentive = (revenue: number, rule: IncentiveRule): number => {
     if (revenue < rule.base_revenue_threshold) return 0;
-
-    let incentive = 0;
-    let remainingRevenue = revenue;
 
     // Apply tiered rates
     const sortedTiers = [...rule.tiers].sort((a, b) => a.revenue_threshold - b.revenue_threshold);
 
-    for (let i = 0; i < sortedTiers.length; i++) {
-      const tier = sortedTiers[i];
-      const nextTier = sortedTiers[i + 1];
-
-      if (remainingRevenue <= 0) break;
-
-      const tierThreshold = tier.revenue_threshold;
-      const nextThreshold = nextTier ? nextTier.revenue_threshold : Infinity;
-
-      if (revenue > tierThreshold) {
-        const applicableRevenue = Math.min(remainingRevenue, nextThreshold - tierThreshold);
-
-        // Different rates for standard vs high commission
-        let rate = tier.incentive_rate;
-        if (category === 'high') {
-          rate = rate * 1.2; // 20% bonus for high commission accounts
-        }
-
-        incentive += (applicableRevenue * rate) / 100;
-        remainingRevenue -= applicableRevenue;
+    // Find which tier applies based on revenue
+    let applicableTier = sortedTiers[0];
+    for (const tier of sortedTiers) {
+      if (revenue >= tier.revenue_threshold) {
+        applicableTier = tier;
+      } else {
+        break;
       }
     }
+
+    // Calculate incentive using the applicable tier's rate
+    const incentive = (revenue * applicableTier.incentive_rate) / 100;
 
     return incentive;
   };
@@ -200,8 +187,8 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
       });
 
       // Calculate incentives using tiered system
-      const standardIncentive = calculateTieredIncentive(standardCommissionRevenue, activeRule, 'standard');
-      const highIncentive = calculateTieredIncentive(highCommissionRevenue, activeRule, 'high');
+      const standardIncentive = calculateTieredIncentive(standardCommissionRevenue, activeRule);
+      const highIncentive = calculateTieredIncentive(highCommissionRevenue, activeRule);
 
       data.push({
         user_id: userId,
@@ -270,7 +257,7 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
         }
       });
 
-      const avgCommissionRate = totalRevenue > 0 ? (totalCommission / totalRevenue) * 100 : 0;
+      const avgCommissionRate = totalRevenue > 0 ? Number(((totalCommission / totalRevenue) * 100).toFixed(4)) : 0;
 
       return {
         user_id: user.id,
@@ -284,6 +271,24 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
     });
     return overview.sort((a, b) => b.total_revenue - a.total_revenue);
   }, [users, accounts, salesData, selectedMonth, selectedYear, activeRule]);
+
+  // Function to determine which quest/rule category a user belongs to
+  const getUserQuestCategory = (avgCommissionRate: number) => {
+    if (!activeRule) return null;
+
+    const midPoint = 6.5;
+
+    if (avgCommissionRate >= activeRule.commission_rate_min && avgCommissionRate <= activeRule.commission_rate_max) {
+      const maxDisplay = activeRule.commission_rate_max === 100 ? '∞' : activeRule.commission_rate_max + '%';
+
+      if (avgCommissionRate < midPoint) {
+        return { category: 'Standard Commission', range: `${activeRule.commission_rate_min}% - ${maxDisplay}`, color: 'bg-blue-100 text-blue-800' };
+      } else {
+        return { category: 'High Commission', range: `${activeRule.commission_rate_min}% - ${maxDisplay}`, color: 'bg-purple-100 text-purple-800' };
+      }
+    }
+    return { category: 'Not Qualifying', range: 'Outside range', color: 'bg-gray-100 text-gray-800' };
+  };
 
   // Calculate summary statistics
   const summaryStats = useMemo(() => {
@@ -625,6 +630,12 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Avg Rate (%)
                   </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Quest Category
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Incentive Amount
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
@@ -655,13 +666,39 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
                       {formatCurrency(userOverview.total_commission)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                        userOverview.avg_commission_rate >= 6.5
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-blue-100 text-blue-800'
-                      }`}>
-                        {userOverview.avg_commission_rate.toFixed(2)}%
-                      </span>
+                      <div className="text-sm font-medium text-gray-900">
+                        {userOverview.avg_commission_rate.toFixed(4)}%
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      {(() => {
+                        const questInfo = getUserQuestCategory(userOverview.avg_commission_rate);
+                        return questInfo ? (
+                          <div className="space-y-1">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${questInfo.color}`}>
+                              {questInfo.category}
+                            </span>
+                            <div className="text-xs text-gray-500">
+                              {questInfo.range}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400">No active rule</span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      {(() => {
+                        if (!activeRule || userOverview.total_revenue < activeRule.base_revenue_threshold) {
+                          return <span className="text-sm text-gray-400">-</span>;
+                        }
+                        const incentive = calculateTieredIncentive(userOverview.total_revenue, activeRule);
+                        return (
+                          <div className="text-sm font-semibold text-green-600">
+                            {formatCurrency(incentive)}
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}
