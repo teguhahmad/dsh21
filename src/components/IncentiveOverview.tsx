@@ -86,6 +86,42 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
     return incentiveRules.find(rule => rule.is_active) || null;
   }, [incentiveRules]);
 
+  // Calculate tiered incentive
+  const calculateTieredIncentive = (revenue: number, rule: IncentiveRule, category: 'standard' | 'high'): number => {
+    if (revenue < rule.base_revenue_threshold) return 0;
+
+    let incentive = 0;
+    let remainingRevenue = revenue;
+
+    // Apply tiered rates
+    const sortedTiers = [...rule.tiers].sort((a, b) => a.revenue_threshold - b.revenue_threshold);
+
+    for (let i = 0; i < sortedTiers.length; i++) {
+      const tier = sortedTiers[i];
+      const nextTier = sortedTiers[i + 1];
+
+      if (remainingRevenue <= 0) break;
+
+      const tierThreshold = tier.revenue_threshold;
+      const nextThreshold = nextTier ? nextTier.revenue_threshold : Infinity;
+
+      if (revenue > tierThreshold) {
+        const applicableRevenue = Math.min(remainingRevenue, nextThreshold - tierThreshold);
+
+        // Different rates for standard vs high commission
+        let rate = tier.incentive_rate;
+        if (category === 'high') {
+          rate = rate * 1.2; // 20% bonus for high commission accounts
+        }
+
+        incentive += (applicableRevenue * rate) / 100;
+        remainingRevenue -= applicableRevenue;
+      }
+    }
+
+    return incentive;
+  };
+
   // Calculate monthly incentive data
   const monthlyIncentiveData = useMemo(() => {
     if (!activeRule || accounts.length === 0 || salesData.length === 0 || users.length === 0) {
@@ -190,42 +226,6 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
     return data.sort((a, b) => b.total_incentive - a.total_incentive);
   }, [accounts, salesData, users, activeRule, selectedMonth, selectedYear]);
 
-  // Calculate tiered incentive
-  const calculateTieredIncentive = (revenue: number, rule: IncentiveRule, category: 'standard' | 'high'): number => {
-    if (revenue < rule.base_revenue_threshold) return 0;
-
-    let incentive = 0;
-    let remainingRevenue = revenue;
-
-    // Apply tiered rates
-    const sortedTiers = [...rule.tiers].sort((a, b) => a.revenue_threshold - b.revenue_threshold);
-    
-    for (let i = 0; i < sortedTiers.length; i++) {
-      const tier = sortedTiers[i];
-      const nextTier = sortedTiers[i + 1];
-      
-      if (remainingRevenue <= 0) break;
-      
-      const tierThreshold = tier.revenue_threshold;
-      const nextThreshold = nextTier ? nextTier.revenue_threshold : Infinity;
-      
-      if (revenue > tierThreshold) {
-        const applicableRevenue = Math.min(remainingRevenue, nextThreshold - tierThreshold);
-        
-        // Different rates for standard vs high commission
-        let rate = tier.incentive_rate;
-        if (category === 'high') {
-          rate = rate * 1.2; // 20% bonus for high commission accounts
-        }
-        
-        incentive += (applicableRevenue * rate) / 100;
-        remainingRevenue -= applicableRevenue;
-      }
-    }
-
-    return incentive;
-  };
-
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -237,6 +237,53 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
   const formatNumber = (num: number) => {
     return new Intl.NumberFormat('id-ID').format(num);
   };
+
+  // Calculate user accounts overview with aggregated metrics
+  const userAccountsOverview = useMemo(() => {
+    if (!activeRule) return [];
+
+    const overview = users.map(user => {
+      const userAccounts = accounts.filter(acc => acc.user_id === user.id);
+
+      // Calculate aggregated metrics for all accounts of this user
+      let totalRevenue = 0;
+      let totalCommission = 0;
+      let qualifyingAccountsCount = 0;
+
+      userAccounts.forEach(account => {
+        // Filter sales data for selected month/year
+        const accountSales = salesData.filter(sale => {
+          const saleDate = new Date(sale.date);
+          return sale.account_id === account.id &&
+                 saleDate.getMonth() + 1 === selectedMonth &&
+                 saleDate.getFullYear() === selectedYear;
+        });
+
+        const accountCommission = accountSales.reduce((sum, sale) => sum + sale.gross_commission, 0);
+
+        // Only count accounts that meet the min_commission_threshold
+        if (accountCommission >= activeRule.min_commission_threshold) {
+          const accountRevenue = accountSales.reduce((sum, sale) => sum + sale.total_purchases, 0);
+          totalRevenue += accountRevenue;
+          totalCommission += accountCommission;
+          qualifyingAccountsCount++;
+        }
+      });
+
+      const avgCommissionRate = totalRevenue > 0 ? (totalCommission / totalRevenue) * 100 : 0;
+
+      return {
+        user_id: user.id,
+        user_name: user.name,
+        total_accounts: userAccounts.length,
+        qualifying_accounts: qualifyingAccountsCount,
+        total_revenue: totalRevenue,
+        total_commission: totalCommission,
+        avg_commission_rate: avgCommissionRate,
+      };
+    });
+    return overview.sort((a, b) => b.total_revenue - a.total_revenue);
+  }, [users, accounts, salesData, selectedMonth, selectedYear, activeRule]);
 
   // Calculate summary statistics
   const summaryStats = useMemo(() => {
@@ -545,6 +592,87 @@ const IncentiveOverview: React.FC<IncentiveOverviewProps> = ({ currentUser }) =>
             <p className="text-gray-600">
               No qualifying accounts found for {new Date(selectedYear, selectedMonth - 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* User Accounts Overview */}
+      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+        <div className="p-6 border-b border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-900">User Accounts Overview</h3>
+          <p className="text-sm text-gray-600 mt-1">
+            Aggregated performance for {new Date(selectedYear, selectedMonth - 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+          </p>
+        </div>
+
+        {userAccountsOverview.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    User Name
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Qualifying Accounts
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Total Revenue
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Total Commission
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Avg Rate (%)
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-100">
+                {userAccountsOverview.map((userOverview) => (
+                  <tr key={userOverview.user_id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-lg flex items-center justify-center">
+                          <User className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-900">{userOverview.user_name}</div>
+                          <div className="text-xs text-gray-500">
+                            {userOverview.qualifying_accounts} of {userOverview.total_accounts} accounts
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-gray-100 text-gray-800">
+                        {userOverview.qualifying_accounts}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">
+                      {formatCurrency(userOverview.total_revenue)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">
+                      {formatCurrency(userOverview.total_commission)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        userOverview.avg_commission_rate >= 6.5
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {userOverview.avg_commission_rate.toFixed(2)}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No Users Found</h3>
+            <p className="text-gray-600">No users available in the system</p>
           </div>
         )}
       </div>
